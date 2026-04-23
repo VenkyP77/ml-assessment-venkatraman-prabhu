@@ -32,11 +32,46 @@ There may be differences in baseline demand, seasonal changes, and how stores re
     - **count(festival_days)**
 
 ### b. EDA before modeling
-I will do the following four analyses (charts/metrics):
+I will do the following four analyses (charts):
 1. **Monthly sales distribution (histogram)**
     - I will look for skew, heavy tails and outliers (months that are very different from the rest) in the data.
     - **Influence on my modelling approach:** If the data is skewed or presents a long-tail distribution, I may need to consider logarithmic transformations to the dataset to do some pre-proccessing for stores for which results may be hard to predict.
 2. **Calendar and seasonal effects (time series by month)**
     - Here I will look for peaks that happen again and again (like festivals or the end of a season), or structural breaks that may indicate marketing policy changes.
     - **Influence on my modelling approach:** I will need to use **time-based validation** (walk-forward), and not do random splits that let future seasonality into training. Temporal splits would be the way to go.
-3. 
+3. **Correlation heatmap of numeric store attributes and baseline monthly volume.** 
+    - I need to look for multicollinearity between parameters (for example, footfall vs. size)
+    - **Influence on my modelling approach:** If collinearity is observed, then I may need to drop one of the correlated variables if they measure the same effect, OR look at feature transformation (e.g. use a ratio of the correlated variables - footfall by size). I can also consider using regularization approaches with linear modelling or go with Gradient Boosting / Random Forest models.
+4. **Bar chart for Average volume by promotion AND stacked bar of share of months each promotion runs**
+    - I will look for an imbalance (e.g. rare promotions), overlap with seasons, and/or clear patterns of non-random assignment. For instance, if a promo shows high average volume, but on the stacked bar I can see that it only runs in October, the increased volume may be due to the Diwali festival, rather than the promo itself. Conversely if the share of months for a specific promo is very small, the "Average Volume" statistic become unreliable.
+    - **Influence on my modelling approach:** I will need to introduce recency / frequency indicative features instead of a binary feature e.g. Instead of just capturing "If Promo is Active", create a feature like "Days since the last promo run". Also including interaction features like "Month" X "Promo Type" can potentially mitigate the effect of seasonality.
+
+### c. Dataset imbalance and its effect on the model
+When 80% of the data represents the baseline (no promo), the model can discover that it can achieve 80% accuracy simply by predicting the baseline every time. This could have a significant impact on the ability of the model to accurately predict the outcome.
+Mean Squared Error (MSE) and other standard loss functions are heavily influenced by big outliers. The model will focus on getting the non-promotional periods right because they are the "standard." However, when a promotion happens with a corresponding spike in volume, the model will undershoot the prediction because the weight of the 80% baseline will pull the prediction toward the mean.
+To address this, I can use a pipeline with 2 separate models, instead of a single model. One model can be a "Classifier" model which predicts if there was a significant shift from the baseline. The second model which I will train only on data from promotional periods can then be used to predict the magnitude of the impact of the promotion. I will then also track the errors separately - "Baseline error" for non-promo periods and "Promo Error" for specifically promo periods.
+
+
+## B3. Model Evaluation and Deployment
+
+### a. Evaluation Metrics
+In this case, where we have monthly store data spanning 3 years across 50 stores, there is huge time dependency on the data. For example what happened at any particular store in any month could be highly dependent on what happened in that store in the preceding month or several months. If we randomly sample the data and do the train-test split, we might end up with a scenario where we train the model on future months and test it on past months. This is not right, since logically it means that the model looks at the future data to predict the past, instead of the other way around.
+
+**Proposed approach:** In this case, I will use a time-series split of the data. For example, I will train the model on the first 24 months of the dataset and test it on the remainder 12 months.
+
+**Evaluation Metrics and Interpretations:** Since the goal is to maximize items sold (a continuous count), I will treat this as a regression problem to predict sales under each of the five promotion types. Then I can select the one with the highest predicted value.
+I will use **Mean Absolute Error (MAE)** which can indicate, on an average, how many items our prediction is "off" by. For example if the MAE is 10 for average sales of 100 by a store, I know that the promotion planning has a 10% margin for error.
+Using the **Mean Absolute Percentage Error (MAPE)** can help me by normalizing the error as a percentage. This will help because the absolute error needs to be seen in the context of the overall volume. For instance, an error of 100 items for a Urban store with high sales volumes may be acceptable, but for a small rural store with low volumes, this might turn out to be a disastrous prediction. 
+I can also look at **Root Means Squared Error (RMSE)**. Since RMSE penalizes larger errors more heavily as compared to MAE, in conjunction with the MAE, it can help me identify if the model is failing on predicting outliers. This can help me ensure that my predictions DO NOT lead to massive stockouts or losses. For example, if my model is predicting over-predicting by a large margin for a store, I could end up having to markdown prices due to lack of sales. In such cases, a high RMSE vs MAE can clearly indicate that my model is over-predicting.
+
+### b. Communicating model recommendations
+After training, the model recommends the Loyalty Points Bonus for Store 12 in December and the Flat Discount for Store 12 in March. 
+To investigate this, I will first isolate the observations for store 12 in December and March and look at the model's internal decision logic. I can then identify which features contributed to the prediction of "Loyalty Points Bonus" in December and "Flat Discount" in March. I will also look at specific variables that changed significantly between the 2 months. This analysis may give me insight like, December was a high-footfall month because of the holiday season and March was a low-footfall month. This could be the reason that the model recommended a "Loyalty Points Bonus" in December to ensure that repeat visits happen in January which could potentially be lower-footfall and it might increase the basket size without cutting into immediate profit margins. In case of March, there could be higher competition density with shoppers being less motivated and nearby stores running Promotions. In this case a "Flat Discount" is intended to hook the customers into coming into the store. 
+In order to communicate and explain the model predictions to the Marketing team, I will focus on the following:
+1. I will ensure that I avoid all technical jargon - "feature contributions", "weights", "coefficients", etc. and focus on communicating the business takeaways
+2. I will explain how the various factors and their historical data like "store footfall", "sales volumes", etc. are considered by the model during its training, to make the predictions
+3. I will explain the primary goal of the model while making the prediction. For example - In December, the primary goal for the model was to "Retain and Reward" customers, whereas in March it was to "Acquire and Increase traffic". I will also highlight the key variables that led the model to the conclusion and the insight the model could provide. For example in December the insight was that Customers were already coming into the store because of the festive season. So it made sense to ensure that spends were maximised and by using loyalty points get them to come back in January which could be potentially lower footfall.
+4. I will also visualize and demonstrate the potential impact of the promotions on baseline sales, to arrive at the model predicted values.
+5. Finally I will ensure that the marketing team realizes that the predictions made by the model are NOT "one-size-fits-all". I can get this validation from the marketing team by cross-checking some of the insight from the model with real-world insight from the marketing team. For instance, a dip in foot-fall in March last year could have been because of some local event near the store which disrupted store operations.
+
+### c. 
