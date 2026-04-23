@@ -17,3 +17,26 @@ Revenue is the combination of price and quantity. Promotions change **prices**, 
 ### c. Better Alternative to a Single Global Model across all stores
 There may be differences in baseline demand, seasonal changes, and how stores respond to the same promotion scheme between stores in cities and stores in the country. A single global model might "average away" the differences. This will make decisions worse, or the model may "memorize" the store ID if the store is just one-hot encoded and has no clear structure. So, instead of using one global model that is equally sensitive to promotions everywhere, we should think about using a model that will clearly allow for different baselines and different promotion sensitivities by store or by market.
 **Proposed modelling approach: ** We can group stores into clusters based on their behavior (demand patterns, demographics, or foot traffic) instead of having one model for everything or one model for each store. We train a shared backbone that will learn general demand drivers (like how price drops boost sales), but the last layers of the network will be more specific to the cluster, like Urban, Rural, Semi-Urban, etc. This method should stop the "averaging away" problem because the rural head only learns from rural data, but it can still use the "Global" backbone's knowledge of how promotions work.
+
+## B2. Data and EDA Strategy
+### a. Raw Data preparation
+1. The "Transactions" table has at least "store_id," "transaction datetime/date," "line-level quantity," and "sku," "promotion_id," or flags that link with promotions details.
+2. We can use **store_id** to link **store_attributes** to transactions (each store has a lot of transactions).
+3. We should also add weekend and festival indicators (and any other calendar fields) by joining **calendar** on **date**. We can also shorten the transaction timestamp to the calendar date.
+4. We can use the **promotion_id** from transactions to join **promotion_details** if promotions are given out at that level instead of being guessed from the transactions.
+5. We can have one row per **store_id x month**. This way there is one row for each **Result**. Hence, the total number of items sold in a particular store-month, would be **items_sold_month**.
+6. Before starting modelling we should also define following aggregations: 
+    - **sum(quantity)** as the goal 
+    - **count(distinct transaction_id)**
+    - **count(distinct sku)**
+    - **count(festival_days)**
+
+### b. EDA before modeling
+I will do the following four analyses (charts/metrics):
+1. **Monthly sales distribution (histogram)**
+    - I will look for skew, heavy tails and outliers (months that are very different from the rest) in the data.
+    - **Influence on my modelling approach:** If the data is skewed or presents a long-tail distribution, I may need to consider logarithmic transformations to the dataset to do some pre-proccessing for stores for which results may be hard to predict.
+2. **Calendar and seasonal effects (time series by month)**
+    - Here I will look for peaks that happen again and again (like festivals or the end of a season), or structural breaks that may indicate marketing policy changes.
+    - **Influence on my modelling approach:** I will need to use **time-based validation** (walk-forward), and not do random splits that let future seasonality into training. Temporal splits would be the way to go.
+3. 
